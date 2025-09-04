@@ -1,8 +1,8 @@
 <launch>
     <!-- ...existing code... -->
-    <include file="$(find-pkg-share turtlebot3_navigation2)/launch/navigation2.launch.py">
-        <arg name="use_sim_time" value="true"/>
-        <arg name="map" value="$(find tt_turtle)/map/map_house.yaml"/>
+    <include file="$(find turtlebot3_navigation)/launch/turtlebot3_navigation.launch">
+        <!-- <arg name="use_sim_time" value="true"/> -->
+        <arg name="map_file" value="$(find tt_turtle)/map/map.yaml"/>
     </include>
     <!-- ...existing code... -->
 </launch>
