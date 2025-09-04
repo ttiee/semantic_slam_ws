@@ -1,0 +1,9 @@
+<launch>
+    <!-- Set the TURTLEBOT3_MODEL environment variable -->
+    <!-- <env name="TURTLEBOT3_MODEL" value="waffle_pi" /> -->
+
+    <!-- Include the turtlebot3_house.launch file -->
+    <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_house.launch" />
+
+    <!-- ...existing code... -->
+</launch>

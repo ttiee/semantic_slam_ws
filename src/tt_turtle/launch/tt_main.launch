@@ -1,0 +1,7 @@
+<launch>
+    <!-- 包含 Gazebo 设置 -->
+    <include file="$(find tt_turtle)/launch/gazebo_setup.launch" />
+    
+    <!-- 包含 SLAM 设置 -->
+    <include file="$(find tt_turtle)/launch/slam_setup.launch" />
+</launch>
