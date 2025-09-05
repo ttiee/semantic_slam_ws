@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 启动原有的导航设置 -->
+    <include file="$(find tt_turtle)/launch/nav_setup.launch"/>
+    
+    <!-- 启动物品标记发布器 -->
+    <include file="$(find object_marker_publisher)/launch/object_markers.launch"/>
+    
+    <!-- 可选：启动RViz显示物品标记 -->
+    <arg name="show_objects" default="true"/>
+    <node if="$(arg show_objects)" 
+          name="rviz_objects" 
+          pkg="rviz" 
+          type="rviz" 
+          args="-d $(find object_marker_publisher)/config/objects.rviz"/>
+          
+</launch>

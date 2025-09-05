@@ -1,0 +1,139 @@
+# 物品配置文件
+# 定义地图中的各种物品及其属性
+
+objects:
+  - name: "会议桌"
+    type: "table"
+    position:
+      x: 2.0
+      y: 1.0
+      z: 0.4
+    size:
+      x: 2.0
+      y: 1.0
+      z: 0.05
+    color:
+      r: 0.8
+      g: 0.4
+      b: 0.2
+      a: 0.8
+    description: "大会议桌，可容纳8人"
+
+  - name: "办公椅1"
+    type: "chair"
+    position:
+      x: 1.5
+      y: 0.5
+      z: 0.4
+    size:
+      x: 0.5
+      y: 0.5
+      z: 0.8
+    color:
+      r: 0.2
+      g: 0.2
+      b: 0.8
+      a: 0.8
+    description: "可调节高度办公椅"
+
+  - name: "办公椅2"
+    type: "chair"
+    position:
+      x: 2.5
+      y: 0.5
+      z: 0.4
+    size:
+      x: 0.5
+      y: 0.5
+      z: 0.8
+    color:
+      r: 0.2
+      g: 0.2
+      b: 0.8
+      a: 0.8
+    description: "可调节高度办公椅"
+
+  - name: "书架"
+    type: "shelf"
+    position:
+      x: -1.0
+      y: 2.0
+      z: 1.0
+    size:
+      x: 0.3
+      y: 1.5
+      z: 2.0
+    color:
+      r: 0.6
+      g: 0.3
+      b: 0.1
+      a: 0.8
+    description: "五层书架，存放技术资料"
+
+  - name: "打印机"
+    type: "printer"
+    position:
+      x: 3.0
+      y: -1.0
+      z: 0.3
+    size:
+      x: 0.6
+      y: 0.4
+      z: 0.3
+    color:
+      r: 0.5
+      g: 0.5
+      b: 0.5
+      a: 0.8
+    description: "激光打印机"
+
+  - name: "饮水机"
+    type: "dispenser"
+    position:
+      x: -2.0
+      y: -1.5
+      z: 0.6
+    size:
+      x: 0.4
+      y: 0.4
+      z: 1.2
+    color:
+      r: 0.8
+      g: 0.8
+      b: 1.0
+      a: 0.8
+    description: "冷热饮水机"
+
+  - name: "垃圾桶"
+    type: "trash_bin"
+    position:
+      x: 1.0
+      y: -2.0
+      z: 0.3
+    size:
+      x: 0.3
+      y: 0.3
+      z: 0.6
+    color:
+      r: 0.3
+      g: 0.6
+      b: 0.3
+      a: 0.8
+    description: "可回收垃圾桶"
+
+  - name: "白板"
+    type: "whiteboard"
+    position:
+      x: 0.0
+      y: 3.0
+      z: 1.0
+    size:
+      x: 0.05
+      y: 2.0
+      z: 1.2
+    color:
+      r: 1.0
+      g: 1.0
+      b: 1.0
+      a: 0.9
+    description: "磁性白板，用于会议演示"

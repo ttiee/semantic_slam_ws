@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 物品标记发布器节点 -->
+    <node name="object_marker_publisher" 
+          pkg="object_marker_publisher" 
+          type="object_marker_publisher.py" 
+          output="screen">
+        
+        <!-- 配置文件路径 -->
+        <param name="config_file" value="objects.yaml"/>
+        
+        <!-- 坐标系 -->
+        <param name="frame_id" value="map"/>
+        
+        <!-- 标记缩放比例 -->
+        <param name="marker_scale" value="1.0"/>
+        
+        <!-- 发布频率 (Hz) -->
+        <param name="publish_rate" value="1.0"/>
+        
+    </node>
+    
+    <!-- 可选：启动RViz进行可视化 -->
+    <arg name="launch_rviz" default="false"/>
+    <node if="$(arg launch_rviz)" 
+          name="rviz" 
+          pkg="rviz" 
+          type="rviz" 
+          args="-d $(find object_marker_publisher)/config/objects.rviz"/>
+          
+</launch>
