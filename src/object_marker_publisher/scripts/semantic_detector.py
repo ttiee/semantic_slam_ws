@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# filepath: /home/shrenqi/semantic_slam_ws/src/object_marker_publisher/scripts/semantic_detector.py
 
 import rospy
 import cv2
@@ -14,11 +13,12 @@ from queue import Queue
 import tf2_ros
 import tf2_geometry_msgs
 from cv_bridge import CvBridge, CvBridgeError
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 import message_filters
+from image_geometry import PinholeCameraModel
 
 # 导入火山引擎API客户端
 try:
@@ -50,6 +50,10 @@ class SemanticDetector:
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
+        # 相机模型
+        self.camera_model = PinholeCameraModel()
+        self.camera_info_received = False
+        
         # 数据存储
         self.semantic_objects = {}
         self.object_id_counter = 0
@@ -59,10 +63,29 @@ class SemanticDetector:
     def _init_parameters(self):
         """初始化参数配置"""
         self.camera_topic = rospy.get_param('~camera_topic', '/camera/rgb/image_raw')
+        self.camera_info_topic = rospy.get_param('~camera_info_topic', '/camera/rgb/camera_info')
         self.target_frame = rospy.get_param('~target_frame', 'map')
         self.camera_frame = rospy.get_param('~camera_frame', 'camera_rgb_optical_frame')
         self.detection_interval = rospy.get_param('~detection_interval', 3.0)
         self.confidence_threshold = rospy.get_param('~confidence_threshold', 0.6)
+        
+        # 平面高度配置
+        self.ground_plane_height = rospy.get_param('~ground_plane_height', 0.0)
+        self.table_plane_height = rospy.get_param('~table_plane_height', 0.75)
+        self.shelf_plane_height = rospy.get_param('~shelf_plane_height', 1.2)
+        
+        # 物体类别到平面的映射
+        self.category_plane_mapping = {
+            'person': 'ground',
+            'chair': 'ground', 
+            'table': 'ground',
+            'door': 'ground',
+            'window': 'wall',
+            'bottle': 'table',
+            'cup': 'table',
+            'book': 'table',
+            'laptop': 'table'
+        }
         
         # API配置
         self.api_key = os.getenv('ARK_API_KEY')
@@ -90,11 +113,20 @@ class SemanticDetector:
         
         # 订阅器
         self.image_sub = message_filters.Subscriber(self.camera_topic, Image)
+        self.camera_info_sub = rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_callback)
+        
         self.ts = message_filters.ApproximateTimeSynchronizer([self.image_sub], 1, 0.1)
         self.ts.registerCallback(self._image_callback)
         
         # 定时器
         self.marker_timer = rospy.Timer(rospy.Duration(1.0), self._publish_markers_timer)
+
+    def _camera_info_callback(self, camera_info_msg):
+        """相机信息回调函数"""
+        if not self.camera_info_received:
+            self.camera_model.fromCameraInfo(camera_info_msg)
+            self.camera_info_received = True
+            rospy.loginfo("Camera calibration received and initialized")
 
     def _start_processing_thread(self):
         """启动异步处理线程"""
@@ -104,6 +136,10 @@ class SemanticDetector:
 
     def _image_callback(self, img_msg):
         """图像回调函数"""
+        if not self.camera_info_received:
+            rospy.logwarn_throttle(5.0, "Camera info not received yet, skipping detection")
+            return
+            
         current_time = rospy.Time.now().to_sec()
         
         # 控制检测频率
@@ -118,7 +154,8 @@ class SemanticDetector:
                 detection_data = {
                     'image': cv_image.copy(),
                     'timestamp': current_time,
-                    'transform': transform
+                    'transform': transform,
+                    'camera_frame': img_msg.header.frame_id
                 }
                 self.detection_queue.put(detection_data)
                 self.last_detection_time = current_time
@@ -298,94 +335,190 @@ class SemanticDetector:
         return None
 
     def _calculate_world_position(self, detection, data, image_size):
-        """计算世界坐标位置"""
-        h, w = image_size
+        """使用射线与平面交点计算世界坐标位置"""
         bbox = detection.get('bbox', {})
+        category = detection.get('class', 'unknown')
         
-        # 计算中心点
+        # 计算中心点像素坐标
         center_x = bbox.get('x', 0) + bbox.get('width', 0) / 2
         center_y = bbox.get('y', 0) + bbox.get('height', 0) / 2
         
-        # 估算深度
-        depth = self._estimate_depth(detection['class'], bbox)
-        
-        # 相机内参（简化）
-        fx = fy = 500.0
-        cx, cy = w/2, h/2
-        
-        # 像素到相机坐标
-        cam_x = (center_x - cx) * depth / fx
-        cam_y = (center_y - cy) * depth / fy
-        cam_z = depth
-        
-        # 转换到世界坐标
-        return self._transform_to_world_coordinates(cam_x, cam_y, cam_z, data['transform'])
-
-    def _estimate_depth(self, category, bbox):
-        """估算物体深度 - 改进版本"""
-        # 物体典型尺寸（米）- 更精确的数据
-        typical_sizes = {
-            'person': {'height': 1.7, 'width': 0.5},
-            'chair': {'height': 0.9, 'width': 0.6}, 
-            'table': {'height': 0.75, 'width': 1.2},
-            'bottle': {'height': 0.25, 'width': 0.08},
-            'cup': {'height': 0.1, 'width': 0.08},
-            'book': {'height': 0.25, 'width': 0.2},
-            'laptop': {'height': 0.02, 'width': 0.35},
-            'door': {'height': 2.0, 'width': 0.8},
-            'window': {'height': 1.2, 'width': 1.0}
-        }
-        
-        # 默认大小
-        default_size = {'height': 0.5, 'width': 0.3}
-        size_info = typical_sizes.get(category, default_size)
-        
-        # 获取边界框尺寸
-        bbox_height = max(bbox.get('height', 100), 1)
-        bbox_width = max(bbox.get('width', 100), 1)
-        
-        # 假设相机焦距 (像素)
-        focal_length = 500.0
-        
-        # 基于高度和宽度计算深度，取平均值
-        depth_from_height = (size_info['height'] * focal_length) / bbox_height
-        depth_from_width = (size_info['width'] * focal_length) / bbox_width
-        
-        # 使用加权平均，高度权重更高
-        depth = (depth_from_height * 0.7 + depth_from_width * 0.3)
-        
-        # 根据物体类别调整深度范围
-        if category in ['person', 'door']:
-            depth = np.clip(depth, 1.0, 10.0)
-        elif category in ['table', 'chair']:
-            depth = np.clip(depth, 0.8, 5.0)
-        elif category in ['bottle', 'cup', 'book']:
-            depth = np.clip(depth, 0.3, 3.0)
-        else:
-            depth = np.clip(depth, 0.5, 8.0)
+        # 计算像素射线
+        ray_direction = self._get_pixel_ray(center_x, center_y)
+        if ray_direction is None:
+            return None
             
-        return depth
+        # 获取相机在世界坐标系中的位置
+        camera_world_pos = self._get_camera_world_position(data['transform'])
+        if camera_world_pos is None:
+            return None
+            
+        # 根据物体类别选择合适的平面进行交点计算
+        intersection_point = self._calculate_ray_plane_intersection(
+            camera_world_pos, ray_direction, category, data['transform']
+        )
+        
+        return intersection_point
 
-    def _transform_to_world_coordinates(self, cam_x, cam_y, cam_z, transform):
-        """转换到世界坐标系"""
+    def _get_pixel_ray(self, u, v):
+        """计算像素点对应的单位方向向量（相机坐标系）"""
         try:
-            point_camera = PointStamped()
-            point_camera.header.frame_id = self.camera_frame
-            point_camera.header.stamp = rospy.Time.now()
-            point_camera.point.x = cam_x
-            point_camera.point.y = cam_y
-            point_camera.point.z = cam_z
+            # 使用相机模型将像素坐标转换为归一化坐标
+            ray = self.camera_model.projectPixelTo3dRay((u, v))
+            # 归一化射线方向
+            ray_norm = np.linalg.norm(ray)
+            if ray_norm > 0:
+                return np.array(ray) / ray_norm
+            return None
+        except Exception as e:
+            rospy.logwarn(f"Pixel ray calculation error: {e}")
+            return None
+
+    def _get_camera_world_position(self, transform):
+        """获取相机在世界坐标系中的位置"""
+        try:
+            translation = transform.transform.translation
+            return np.array([translation.x, translation.y, translation.z])
+        except Exception as e:
+            rospy.logwarn(f"Camera world position error: {e}")
+            return None
+
+    def _calculate_ray_plane_intersection(self, camera_pos, ray_direction_cam, category, transform):
+        """计算射线与平面的交点"""
+        try:
+            # 将相机坐标系的射线方向转换到世界坐标系
+            ray_direction_world = self._transform_vector_to_world(ray_direction_cam, transform)
+            if ray_direction_world is None:
+                return None
+                
+            # 根据物体类别确定目标平面
+            plane_type = self.category_plane_mapping.get(category, 'ground')
+            plane_height = self._get_plane_height(plane_type)
             
-            point_world = tf2_geometry_msgs.do_transform_point(point_camera, transform)
+            # 计算射线与水平面的交点
+            # 平面方程: z = plane_height
+            # 射线方程: P = camera_pos + t * ray_direction_world
+            # 求解: camera_pos[2] + t * ray_direction_world[2] = plane_height
+            
+            if abs(ray_direction_world[2]) < 1e-6:
+                # 射线与平面平行
+                rospy.logwarn("Ray parallel to plane, using fallback depth estimation")
+                return self._fallback_depth_estimation(camera_pos, ray_direction_world, category)
+                
+            t = (plane_height - camera_pos[2]) / ray_direction_world[2]
+            
+            # 检查交点是否在相机前方
+            if t <= 0:
+                rospy.logwarn("Intersection behind camera, using fallback")
+                return self._fallback_depth_estimation(camera_pos, ray_direction_world, category)
+                
+            # 计算交点坐标
+            intersection = camera_pos + t * ray_direction_world
+            
+            # 距离合理性检查
+            distance = np.linalg.norm(intersection - camera_pos)
+            max_distance = self._get_max_detection_distance(category)
+            
+            if distance > max_distance:
+                rospy.logwarn(f"Intersection too far ({distance:.2f}m), using clamped distance")
+                # 使用最大距离限制
+                clamped_distance = min(distance, max_distance)
+                intersection = camera_pos + (clamped_distance / distance) * (intersection - camera_pos)
             
             return {
-                'x': point_world.point.x,
-                'y': point_world.point.y,
-                'z': point_world.point.z
+                'x': intersection[0],
+                'y': intersection[1], 
+                'z': intersection[2]
             }
+            
         except Exception as e:
-            rospy.logwarn(f"Coordinate transformation error: {e}")
+            rospy.logwarn(f"Ray-plane intersection error: {e}")
             return None
+
+    def _transform_vector_to_world(self, vector_cam, transform):
+        """将相机坐标系的向量转换到世界坐标系"""
+        try:
+            # 提取旋转四元数
+            rotation = transform.transform.rotation
+            
+            # 创建旋转矩阵
+            import tf.transformations as tf_trans
+            rotation_matrix = tf_trans.quaternion_matrix([
+                rotation.x, rotation.y, rotation.z, rotation.w
+            ])[:3, :3]
+            
+            # 变换向量
+            vector_world = rotation_matrix.dot(vector_cam)
+            return vector_world
+            
+        except Exception as e:
+            rospy.logwarn(f"Vector transformation error: {e}")
+            return None
+
+    def _get_plane_height(self, plane_type):
+        """获取平面高度"""
+        height_mapping = {
+            'ground': self.ground_plane_height,
+            'table': self.table_plane_height,
+            'shelf': self.shelf_plane_height,
+            'wall': self.shelf_plane_height  # 窗户等
+        }
+        return height_mapping.get(plane_type, self.ground_plane_height)
+
+    def _get_max_detection_distance(self, category):
+        """获取不同类别物体的最大检测距离"""
+        max_distances = {
+            'person': 15.0,
+            'chair': 10.0,
+            'table': 10.0,
+            'door': 20.0,
+            'window': 20.0,
+            'bottle': 5.0,
+            'cup': 5.0,
+            'book': 5.0,
+            'laptop': 8.0
+        }
+        return max_distances.get(category, 12.0)
+
+    def _fallback_depth_estimation(self, camera_pos, ray_direction_world, category):
+        """回退深度估算方法"""
+        # 使用改进的典型深度
+        typical_depths = {
+            'person': 3.0,
+            'chair': 2.5,
+            'table': 3.0,
+            'door': 4.0,
+            'window': 5.0,
+            'bottle': 1.5,
+            'cup': 1.5,
+            'book': 2.0,
+            'laptop': 2.0
+        }
+        
+        depth = typical_depths.get(category, 2.5)
+        intersection = camera_pos + depth * ray_direction_world
+        
+        return {
+            'x': intersection[0],
+            'y': intersection[1],
+            'z': intersection[2]
+        }
+
+    def _estimate_depth(self, category, bbox):
+        """保留原有估算深度方法作为备选"""
+        # 这个方法现在主要用于标记大小计算等辅助功能
+        typical_depths = {
+            'person': 3.0,
+            'chair': 2.5, 
+            'table': 3.0,
+            'door': 4.0,
+            'window': 5.0,
+            'bottle': 1.5,
+            'cup': 1.5,
+            'book': 2.0,
+            'laptop': 2.0
+        }
+        return typical_depths.get(category, 2.5)
 
     def _publish_debug_image(self, image, detections):
         """发布调试图像"""
@@ -436,7 +569,7 @@ class SemanticDetector:
         return marker_array
 
     def _create_object_marker(self, obj_id, obj_data, timestamp):
-        """创建物体标记 - 动态大小"""
+        """创建物体标记 - 根据射线交点结果调整"""
         marker = Marker()
         marker.header.frame_id = self.target_frame
         marker.header.stamp = timestamp
@@ -452,41 +585,39 @@ class SemanticDetector:
         marker.pose.position.z = pos['z']
         marker.pose.orientation.w = 1.0
         
-        # 根据物体类别和深度动态调整大小
+        # 根据物体类别和置信度调整大小
         category = obj_data['category']
         confidence = obj_data['confidence']
-        depth = obj_data.get('estimated_depth', 2.0)
+        detection_count = obj_data.get('detection_count', 1)
         
-        # 基础大小映射
+        # 基础大小映射（基于射线交点方法的精度更高，可以适当减小标记）
         base_sizes = {
-            'person': 0.3,
-            'chair': 0.25,
-            'table': 0.35,
-            'bottle': 0.1,
-            'cup': 0.08,
-            'book': 0.12,
-            'laptop': 0.15,
-            'door': 0.4,
-            'window': 0.3
+            'person': 0.25,
+            'chair': 0.2,
+            'table': 0.3,
+            'bottle': 0.08,
+            'cup': 0.06,
+            'book': 0.1,
+            'laptop': 0.12,
+            'door': 0.35,
+            'window': 0.25
         }
         
-        base_size = base_sizes.get(category, 0.2)
+        base_size = base_sizes.get(category, 0.15)
         
         # 考虑置信度和检测次数的大小调整
-        detection_count = obj_data.get('detection_count', 1)
-        size_factor = min(1.0 + (detection_count - 1) * 0.1, 1.5)  # 最大1.5倍
-        confidence_factor = 0.5 + confidence * 0.5  # 0.5-1.0范围
+        size_factor = min(1.0 + (detection_count - 1) * 0.1, 1.5)
+        confidence_factor = 0.6 + confidence * 0.4
         
         final_size = base_size * size_factor * confidence_factor
-        
         marker.scale.x = marker.scale.y = marker.scale.z = final_size
         
-        # 颜色 - 根据置信度调整透明度
+        # 颜色和透明度
         color = self._get_category_color(category)
-        alpha = 0.6 + confidence * 0.4  # 置信度越高越不透明
+        alpha = 0.7 + confidence * 0.3
         marker.color = ColorRGBA(*color, alpha)
         
-        # 生存时间根据检测次数调整
+        # 生存时间
         lifetime = min(30.0 + detection_count * 5.0, 60.0)
         marker.lifetime = rospy.Duration(lifetime)
         
