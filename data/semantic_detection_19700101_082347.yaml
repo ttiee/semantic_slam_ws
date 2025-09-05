@@ -1,0 +1,148 @@
+detections:
+- bbox: &id002
+    height: 300
+    width: 200
+    x: 312
+    y: 143
+  class: trash bin
+  confidence: 0.6300000000000001
+  depth_cues: near
+  depth_estimation:
+    depth: medium
+    estimated_distance: 3.0
+  image_size:
+    height: 480
+    width: 640
+  occlusion: none
+  size_category: large
+semantic_objects:
+  '0':
+    bbox_size:
+      height: 329
+      width: 485
+      x: 100
+      y: 0
+    category: window
+    confidence: 0.5677555627217027
+    detection_count: 2
+    estimated_depth: 5.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - &id001 !!python/object/apply:numpy.dtype
+        args:
+        - f8
+        - false
+        - true
+        state: !!python/tuple
+        - 3
+        - <
+        - null
+        - null
+        - null
+        - -1
+        - -1
+        - 0
+      - !!binary |
+        kgmCNkOwHsA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        DO2oiri0CUA=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        REBDuw324D8=
+    timestamp: 1412.606
+  '1':
+    bbox_size:
+      height: 370
+      width: 485
+      x: 185
+      y: 12
+    category: window
+    confidence: 0.5139932659932661
+    detection_count: 2
+    estimated_depth: 5.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        hUMWPD4WG8A=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        XCbZprD9DUA=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        5PnYmiYZ1j8=
+    timestamp: 1418.632
+  '2':
+    bbox_size:
+      height: 395
+      width: 275
+      x: 0
+      y: 68
+    category: window
+    confidence: 0.4839583333333334
+    detection_count: 1
+    estimated_depth: 5.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        XOIVQhq+F8A=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        aHOx7Jt/B0A=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        3O2VKHpDnb8=
+    timestamp: 1421.634
+  '3':
+    bbox_size:
+      height: 552
+      width: 354
+      x: 846
+      y: 129
+    category: trash bin
+    confidence: 0.45
+    detection_count: 2
+    estimated_depth: 2.5
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        r5Ez1MjqCsA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        5xKM7HuvEEA=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        IVixOtQct78=
+    timestamp: 1424.655
+  '4':
+    bbox_size: *id002
+    category: trash bin
+    confidence: 0.6300000000000001
+    detection_count: 1
+    estimated_depth: 2.5
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        VKhyEboJEcA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        /mDx5++dFEA=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        5F28+y5Eub8=
+    timestamp: 1427.688
+timestamp: 1427.688

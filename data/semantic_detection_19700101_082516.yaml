@@ -1,0 +1,85 @@
+detections:
+- bbox: &id002
+    height: 200
+    width: 400
+    x: 0
+    y: 0
+  class: table
+  confidence: !!python/object/apply:numpy.core.multiarray.scalar
+  - &id001 !!python/object/apply:numpy.dtype
+    args:
+    - f8
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - <
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - !!binary |
+    gu5g5dv/5j8=
+  depth_cues: near
+  depth_estimation:
+    depth: far
+    estimated_distance: 5.0
+  image_size:
+    height: 480
+    width: 640
+  occlusion: none
+  size_category: large
+semantic_objects:
+  '10':
+    bbox_size:
+      height: 200
+      width: 248
+      x: 0
+      y: 87
+    category: table
+    confidence: !!python/object/apply:numpy.core.multiarray.scalar
+    - *id001
+    - !!binary |
+      Z8sFkHkr5T8=
+    detection_count: 1
+    estimated_depth: 3.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        pTmlX9uQDUA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        keI0rPkH8D8=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        F9CFlwhi0z8=
+    timestamp: 1513.747
+  '11':
+    bbox_size: *id002
+    category: table
+    confidence: !!python/object/apply:numpy.core.multiarray.scalar
+    - *id001
+    - !!binary |
+      gu5g5dv/5j8=
+    detection_count: 1
+    estimated_depth: 3.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        CP94R5g+FkA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        stOMIMAP/T8=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id001
+      - !!binary |
+        lAKgF5hl7z8=
+    timestamp: 1516.789
+timestamp: 1516.789

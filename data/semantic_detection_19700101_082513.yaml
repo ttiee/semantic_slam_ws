@@ -1,0 +1,58 @@
+detections:
+- bbox: &id001
+    height: 200
+    width: 248
+    x: 0
+    y: 87
+  class: table
+  confidence: !!python/object/apply:numpy.core.multiarray.scalar
+  - &id002 !!python/object/apply:numpy.dtype
+    args:
+    - f8
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - <
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - !!binary |
+    Z8sFkHkr5T8=
+  depth_cues: near
+  depth_estimation:
+    depth: medium
+    estimated_distance: 3.0
+  image_size:
+    height: 480
+    width: 640
+  occlusion: none
+  size_category: medium
+semantic_objects:
+  '10':
+    bbox_size: *id001
+    category: table
+    confidence: !!python/object/apply:numpy.core.multiarray.scalar
+    - *id002
+    - !!binary |
+      Z8sFkHkr5T8=
+    detection_count: 1
+    estimated_depth: 3.0
+    position:
+      x: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id002
+      - !!binary |
+        pTmlX9uQDUA=
+      y: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id002
+      - !!binary |
+        keI0rPkH8D8=
+      z: !!python/object/apply:numpy.core.multiarray.scalar
+      - *id002
+      - !!binary |
+        F9CFlwhi0z8=
+    timestamp: 1513.747
+timestamp: 1513.747
