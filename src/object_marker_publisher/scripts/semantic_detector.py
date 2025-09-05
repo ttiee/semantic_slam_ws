@@ -8,6 +8,8 @@ import json
 import threading
 import os
 import base64
+import yaml
+from datetime import datetime
 from queue import Queue
 
 import tf2_ros
@@ -59,6 +61,12 @@ class SemanticDetector:
         self.object_id_counter = 0
         self.detection_queue = Queue(maxsize=3)
         self.last_detection_time = 0
+        
+        # 文件保存配置
+        self.save_enabled = rospy.get_param('~save_markers', True)
+        self.save_dir = rospy.get_param('~save_directory', os.path.expanduser('~/semantic_slam_ws/data'))
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
 
     def _init_parameters(self):
         """初始化参数配置"""
@@ -91,6 +99,19 @@ class SemanticDetector:
         self.api_key = os.getenv('ARK_API_KEY')
         self.model_id = os.getenv('ARK_MODEL_ID', 'doubao-vision-pro-32k')
         self.api_url = rospy.get_param('~api_url', 'https://ark.cn-beijing.volces.com/api/v3')
+
+        # 改进的物体尺寸映射（长宽高）
+        self.object_dimensions = {
+            'person': {'length': 0.5, 'width': 0.4, 'height': 1.7, 'shape': 'cylinder'},
+            'chair': {'length': 0.5, 'width': 0.5, 'height': 0.9, 'shape': 'cube'},
+            'table': {'length': 1.2, 'width': 0.8, 'height': 0.75, 'shape': 'cube'},
+            'door': {'length': 0.1, 'width': 0.8, 'height': 2.0, 'shape': 'cube'},
+            'window': {'length': 0.1, 'width': 1.0, 'height': 1.2, 'shape': 'cube'},
+            'bottle': {'length': 0.07, 'width': 0.07, 'height': 0.25, 'shape': 'cylinder'},
+            'cup': {'length': 0.08, 'width': 0.08, 'height': 0.12, 'shape': 'cylinder'},
+            'book': {'length': 0.2, 'width': 0.15, 'height': 0.03, 'shape': 'cube'},
+            'laptop': {'length': 0.35, 'width': 0.25, 'height': 0.02, 'shape': 'cube'}
+        }
 
     def _init_api_client(self):
         """初始化API客户端"""
@@ -191,9 +212,12 @@ class SemanticDetector:
         try:
             detections = self._call_vision_api(data['image'])
             if detections:
-                self._update_semantic_objects(detections, data)
-                self._publish_debug_image(data['image'], detections)
-                rospy.loginfo(f"Detected {len(detections)} objects")
+                # 改进检测结果处理
+                enhanced_detections = self._enhance_detections(detections, data['image'])
+                self._update_semantic_objects(enhanced_detections, data)
+                self._publish_debug_image(data['image'], enhanced_detections)
+                self._save_detections_to_file(enhanced_detections, data['timestamp'])
+                rospy.loginfo(f"Detected {len(enhanced_detections)} objects")
         except Exception as e:
             rospy.logerr(f"Detection processing error: {e}")
 
@@ -207,8 +231,8 @@ class SemanticDetector:
             _, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 85])
             image_base64 = base64.b64encode(buffer).decode('utf-8')
             
-            # 构建提示词
-            prompt = self._build_detection_prompt()
+            # 构建改进的提示词
+            prompt = self._build_enhanced_detection_prompt()
             
             # API调用
             response = self.client.chat.completions.create(
@@ -232,21 +256,32 @@ class SemanticDetector:
             rospy.logerr(f"API call error: {e}")
             return []
 
-    def _build_detection_prompt(self):
-        """构建检测提示词"""
-        return """请检测图片中的物体并返回JSON格式结果：
+    def _build_enhanced_detection_prompt(self):
+        """构建改进的检测提示词"""
+        return """请检测图片中的物体并返回JSON格式结果。评估每个物体的：
+1. 准确的边界框位置
+2. 基于视觉特征的真实置信度（不要总是给高分）
+3. 物体在图像中的相对大小和深度线索
+
+返回格式：
 {
   "detections": [
     {
       "class": "物体类别",
-      "confidence": 0.95,
-      "bbox": {"x": 100, "y": 50, "width": 200, "height": 150}
+      "confidence": 实际置信度(0.0-1.0),
+      "bbox": {"x": 像素x, "y": 像素y, "width": 宽度, "height": 高度},
+      "size_category": "small/medium/large",
+      "depth_cues": "near/far",
+      "occlusion": "none/partial/heavy"
     }
   ]
 }
 
-检测类别包括：person, chair, table, bottle, cup, book, laptop, door, window等。
-只返回置信度>0.5的结果，确保JSON格式正确。"""
+检测类别：person, chair, table, bottle, cup, book, laptop, door, window
+要求：
+- 置信度要基于图像质量、遮挡程度、清晰度真实评估
+- 边界框要准确贴合物体
+- 只返回真正确信的检测结果"""
 
     def _parse_detection_result(self, result_text):
         """解析检测结果"""
@@ -261,12 +296,202 @@ class SemanticDetector:
                 detections = result_data.get('detections', [])
                 
                 # 过滤低置信度结果
-                return [d for d in detections if d.get('confidence', 0) >= self.confidence_threshold]
+                filtered_detections = []
+                for d in detections:
+                    confidence = d.get('confidence', 0)
+                    if confidence >= self.confidence_threshold:
+                        filtered_detections.append(d)
+                
+                rospy.loginfo(f"Parsed {len(filtered_detections)} valid detections from API response")
+                return filtered_detections
+            
+            rospy.logwarn("No valid JSON found in API response")
             return []
             
-        except json.JSONDecodeError:
-            rospy.logwarn("Failed to parse detection result")
+        except json.JSONDecodeError as e:
+            rospy.logwarn(f"Failed to parse detection result: {e}")
+            rospy.logwarn(f"Raw response: {result_text[:200]}...")
             return []
+        except Exception as e:
+            rospy.logwarn(f"Unexpected error parsing detection result: {e}")
+            return []
+
+    def _enhance_detections(self, detections, image):
+        """增强检测结果 - 添加位置和置信度校正"""
+        enhanced = []
+        h, w = image.shape[:2]
+        
+        for detection in detections:
+            try:
+                # 校正置信度
+                corrected_confidence = self._correct_confidence(detection, image)
+                
+                # 添加深度估计信息
+                depth_info = self._analyze_depth_cues(detection, image)
+                
+                enhanced_detection = detection.copy()
+                enhanced_detection['confidence'] = corrected_confidence
+                enhanced_detection['depth_estimation'] = depth_info
+                enhanced_detection['image_size'] = {'width': w, 'height': h}
+                
+                enhanced.append(enhanced_detection)
+                
+            except Exception as e:
+                rospy.logwarn(f"Detection enhancement error: {e}")
+                enhanced.append(detection)
+        
+        return enhanced
+
+    def _correct_confidence(self, detection, image):
+        """基于视觉特征校正置信度"""
+        bbox = detection.get('bbox', {})
+        base_confidence = detection.get('confidence', 0.0)
+        
+        # 获取边界框区域
+        x, y = int(bbox.get('x', 0)), int(bbox.get('y', 0))
+        w, h = int(bbox.get('width', 1)), int(bbox.get('height', 1))
+        
+        if x >= 0 and y >= 0 and x + w <= image.shape[1] and y + h <= image.shape[0]:
+            roi = image[y:y+h, x:x+w]
+            
+            # 计算图像质量指标
+            clarity_score = self._calculate_clarity(roi)
+            size_score = self._calculate_size_reasonableness(bbox, image.shape, detection.get('class'))
+            position_score = self._calculate_position_reasonableness(bbox, image.shape, detection.get('class'))
+            
+            # 综合校正
+            correction_factor = (clarity_score + size_score + position_score) / 3.0
+            corrected_confidence = base_confidence * correction_factor
+            
+            # 确保在合理范围内
+            return max(0.1, min(0.95, corrected_confidence))
+        
+        return base_confidence * 0.5  # 无效区域降低置信度
+
+    def _calculate_clarity(self, roi):
+        """计算图像清晰度"""
+        try:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            # 标准化到0-1范围
+            clarity = min(1.0, laplacian_var / 500.0)
+            return max(0.3, clarity)
+        except:
+            return 0.5
+
+    def _calculate_size_reasonableness(self, bbox, image_shape, category):
+        """计算尺寸合理性"""
+        try:
+            image_area = image_shape[0] * image_shape[1]
+            bbox_area = bbox.get('width', 0) * bbox.get('height', 0)
+            area_ratio = bbox_area / image_area
+            
+            # 不同物体的合理面积比例范围
+            reasonable_ratios = {
+                'person': (0.05, 0.4),
+                'chair': (0.02, 0.3),
+                'table': (0.1, 0.6),
+                'bottle': (0.001, 0.05),
+                'cup': (0.001, 0.03),
+                'book': (0.005, 0.1),
+                'laptop': (0.01, 0.2),
+                'door': (0.05, 0.5),
+                'window': (0.03, 0.4)
+            }
+            
+            min_ratio, max_ratio = reasonable_ratios.get(category, (0.01, 0.5))
+            
+            if min_ratio <= area_ratio <= max_ratio:
+                return 1.0
+            elif area_ratio < min_ratio:
+                return max(0.3, area_ratio / min_ratio)
+            else:
+                return max(0.3, max_ratio / area_ratio)
+        except:
+            return 0.5
+
+    def _calculate_position_reasonableness(self, bbox, image_shape, category):
+        """计算位置合理性"""
+        try:
+            center_x = bbox.get('x', 0) + bbox.get('width', 0) / 2
+            center_y = bbox.get('y', 0) + bbox.get('height', 0) / 2
+            
+            # 标准化位置 (0-1)
+            norm_x = center_x / image_shape[1]
+            norm_y = center_y / image_shape[0]
+            
+            # 不同物体的合理位置分布
+            if category in ['door', 'window']:
+                # 门窗通常在边缘或中间
+                edge_score = min(norm_x, 1 - norm_x) if norm_x < 0.3 or norm_x > 0.7 else 0.5
+                return max(0.4, edge_score + 0.3)
+            elif category in ['bottle', 'cup', 'book', 'laptop']:
+                # 小物体通常在中下部
+                if norm_y > 0.4:  # 下半部分
+                    return 1.0
+                else:
+                    return 0.6
+            else:
+                # 其他物体位置相对自由
+                return 0.8
+        except:
+            return 0.7
+
+    def _analyze_depth_cues(self, detection, image):
+        """分析深度线索"""
+        bbox = detection.get('bbox', {})
+        category = detection.get('class', 'unknown')
+        
+        # 基于位置的深度估计
+        center_y = bbox.get('y', 0) + bbox.get('height', 0) / 2
+        image_height = image.shape[0]
+        
+        # 垂直位置影响深度（透视效果）
+        vertical_ratio = center_y / image_height
+        
+        # 尺寸影响深度
+        bbox_area = bbox.get('width', 0) * bbox.get('height', 0)
+        image_area = image.shape[0] * image.shape[1]
+        size_ratio = bbox_area / image_area
+        
+        # 综合深度估计
+        if vertical_ratio > 0.7 and size_ratio > 0.1:
+            return {'depth': 'near', 'estimated_distance': 1.5}
+        elif vertical_ratio < 0.3 or size_ratio < 0.01:
+            return {'depth': 'far', 'estimated_distance': 5.0}
+        else:
+            return {'depth': 'medium', 'estimated_distance': 3.0}
+
+    def _save_detections_to_file(self, detections, timestamp):
+        """保存检测结果到文件"""
+        if not self.save_enabled or not detections:
+            return
+            
+        try:
+            # 创建保存数据
+            save_data = {
+                'timestamp': timestamp,
+                'detections': detections,
+                'semantic_objects': {}
+            }
+            
+            # 转换语义对象为可序列化格式
+            for obj_id, obj_data in self.semantic_objects.items():
+                save_data['semantic_objects'][str(obj_id)] = obj_data
+            
+            # 生成文件名
+            date_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
+            filename = f"semantic_detection_{date_str}.yaml"
+            filepath = os.path.join(self.save_dir, filename)
+            
+            # 保存到YAML文件
+            with open(filepath, 'w', encoding='utf-8') as f:
+                yaml.dump(save_data, f, default_flow_style=False, allow_unicode=True)
+            
+            rospy.loginfo(f"Saved detection results to {filepath}")
+            
+        except Exception as e:
+            rospy.logwarn(f"Failed to save detection results: {e}")
 
     def _update_semantic_objects(self, detections, data):
         """更新语义对象 - 添加去重逻辑"""
@@ -335,9 +560,10 @@ class SemanticDetector:
         return None
 
     def _calculate_world_position(self, detection, data, image_size):
-        """使用射线与平面交点计算世界坐标位置"""
+        """改进的世界坐标计算 - 使用深度线索"""
         bbox = detection.get('bbox', {})
         category = detection.get('class', 'unknown')
+        depth_info = detection.get('depth_estimation', {})
         
         # 计算中心点像素坐标
         center_x = bbox.get('x', 0) + bbox.get('width', 0) / 2
@@ -353,12 +579,62 @@ class SemanticDetector:
         if camera_world_pos is None:
             return None
             
-        # 根据物体类别选择合适的平面进行交点计算
-        intersection_point = self._calculate_ray_plane_intersection(
-            camera_world_pos, ray_direction, category, data['transform']
+        # 使用深度线索改进深度估计
+        estimated_depth = self._get_improved_depth_estimate(
+            detection, bbox, image_size, depth_info, category
         )
         
-        return intersection_point
+        # 将相机坐标系的射线方向转换到世界坐标系
+        ray_direction_world = self._transform_vector_to_world(ray_direction, data['transform'])
+        if ray_direction_world is None:
+            return None
+        
+        # 计算世界坐标位置
+        intersection = camera_world_pos + estimated_depth * ray_direction_world
+        
+        return {
+            'x': intersection[0],
+            'y': intersection[1],
+            'z': intersection[2]
+        }
+
+    def _get_improved_depth_estimate(self, detection, bbox, image_size, depth_info, category):
+        """改进的深度估计"""
+        # 基础深度
+        base_depth = depth_info.get('estimated_distance', 3.0)
+        
+        # 基于物体大小的深度校正
+        image_area = image_size[0] * image_size[1]
+        bbox_area = bbox.get('width', 0) * bbox.get('height', 0)
+        size_ratio = bbox_area / image_area
+        
+        # 不同类别的典型深度范围
+        depth_ranges = {
+            'person': (1.5, 8.0),
+            'chair': (1.0, 6.0),
+            'table': (1.5, 8.0),
+            'bottle': (0.5, 3.0),
+            'cup': (0.5, 3.0),
+            'book': (0.5, 4.0),
+            'laptop': (0.8, 5.0),
+            'door': (2.0, 15.0),
+            'window': (3.0, 20.0)
+        }
+        
+        min_depth, max_depth = depth_ranges.get(category, (1.0, 10.0))
+        
+        # 基于尺寸比例调整深度
+        if size_ratio > 0.1:  # 大物体通常较近
+            depth_factor = 0.7
+        elif size_ratio < 0.01:  # 小物体通常较远
+            depth_factor = 1.5
+        else:
+            depth_factor = 1.0
+        
+        estimated_depth = base_depth * depth_factor
+        
+        # 限制在合理范围内
+        return max(min_depth, min(max_depth, estimated_depth))
 
     def _get_pixel_ray(self, u, v):
         """计算像素点对应的单位方向向量（相机坐标系）"""
@@ -569,13 +845,12 @@ class SemanticDetector:
         return marker_array
 
     def _create_object_marker(self, obj_id, obj_data, timestamp):
-        """创建物体标记 - 根据射线交点结果调整"""
+        """创建物体标记 - 使用真实形状和大小"""
         marker = Marker()
         marker.header.frame_id = self.target_frame
         marker.header.stamp = timestamp
         marker.ns = "semantic_objects"
         marker.id = obj_id
-        marker.type = Marker.SPHERE
         marker.action = Marker.ADD
         
         # 位置
@@ -585,36 +860,33 @@ class SemanticDetector:
         marker.pose.position.z = pos['z']
         marker.pose.orientation.w = 1.0
         
-        # 根据物体类别和置信度调整大小
+        # 根据物体类别设置形状和尺寸
         category = obj_data['category']
+        dimensions = self.object_dimensions.get(category, {
+            'length': 0.2, 'width': 0.2, 'height': 0.2, 'shape': 'cube'
+        })
+        
+        # 设置形状
+        if dimensions['shape'] == 'cylinder':
+            marker.type = Marker.CYLINDER
+        else:
+            marker.type = Marker.CUBE
+        
+        # 设置尺寸
         confidence = obj_data['confidence']
         detection_count = obj_data.get('detection_count', 1)
         
-        # 基础大小映射（基于射线交点方法的精度更高，可以适当减小标记）
-        base_sizes = {
-            'person': 0.25,
-            'chair': 0.2,
-            'table': 0.3,
-            'bottle': 0.08,
-            'cup': 0.06,
-            'book': 0.1,
-            'laptop': 0.12,
-            'door': 0.35,
-            'window': 0.25
-        }
+        # 基于置信度和检测次数的尺寸调整
+        confidence_factor = 0.7 + confidence * 0.3
+        count_factor = min(1.0 + (detection_count - 1) * 0.05, 1.2)
         
-        base_size = base_sizes.get(category, 0.15)
-        
-        # 考虑置信度和检测次数的大小调整
-        size_factor = min(1.0 + (detection_count - 1) * 0.1, 1.5)
-        confidence_factor = 0.6 + confidence * 0.4
-        
-        final_size = base_size * size_factor * confidence_factor
-        marker.scale.x = marker.scale.y = marker.scale.z = final_size
+        marker.scale.x = dimensions['length'] * confidence_factor * count_factor
+        marker.scale.y = dimensions['width'] * confidence_factor * count_factor
+        marker.scale.z = dimensions['height'] * confidence_factor * count_factor
         
         # 颜色和透明度
         color = self._get_category_color(category)
-        alpha = 0.7 + confidence * 0.3
+        alpha = 0.6 + confidence * 0.4
         marker.color = ColorRGBA(*color, alpha)
         
         # 生存时间
