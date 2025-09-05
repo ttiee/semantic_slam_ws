@@ -34,6 +34,10 @@ class ObjectMarkerPublisher:
         # 创建定时器
         self.timer = rospy.Timer(rospy.Duration(1.0/self.publish_rate), self.publish_markers)
         
+        # 添加语义标记订阅器
+        self.semantic_sub = rospy.Subscriber('semantic_markers', MarkerArray, self.semantic_callback)
+        self.semantic_markers = []
+        
         rospy.loginfo("Object Marker Publisher initialized")
         rospy.loginfo(f"Loaded {len(self.objects)} objects")
 
@@ -196,10 +200,16 @@ class ObjectMarkerPublisher:
         
         return marker
 
+    def semantic_callback(self, marker_array_msg):
+        """接收语义检测结果"""
+        self.semantic_markers = marker_array_msg.markers
+        rospy.logdebug(f"Received {len(self.semantic_markers)} semantic markers")
+
     def publish_markers(self, event):
-        """发布所有标记"""
+        """发布所有标记（包括静态物品和动态语义检测结果）"""
         marker_array = MarkerArray()
         
+        # 添加静态物品标记
         for i, obj in enumerate(self.objects):
             # 添加物品3D标记
             object_marker = self.create_object_marker(obj, i)
@@ -212,6 +222,13 @@ class ObjectMarkerPublisher:
             # 添加箭头标记
             arrow_marker = self.create_arrow_marker(obj, i + 2000)
             marker_array.markers.append(arrow_marker)
+        
+        # 添加语义检测标记
+        for semantic_marker in self.semantic_markers:
+            # 调整命名空间以避免冲突
+            semantic_marker.ns = f"semantic_{semantic_marker.ns}"
+            semantic_marker.id += 5000  # 偏移ID避免冲突
+            marker_array.markers.append(semantic_marker)
         
         # 发布标记数组
         self.marker_pub.publish(marker_array)
