@@ -20,6 +20,11 @@ catkin_make
 source devel/setup.bash
 ```
 
+‵‵‵bash
+pip install 'volcengine-python-sdk[ark]'
+pip install opencv-python numpy requests
+‵‵‵
+
 ## 使用方法
 
 ### 基本启动
